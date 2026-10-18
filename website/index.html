@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#121413">
+  <title>Across — one desk, every device</title>
+  <meta name="description" content="An original, customizable control center for a cross-device workspace.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="mobile.css">
+</head>
+<body>
+  <div class="noise"></div>
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="Across home"><span class="brand-mark">A↗</span><span>across</span></a>
+    <nav aria-label="Primary navigation">
+      <a href="/downloads/">Downloads</a><a href="#workspace">Demo</a><a href="#features">Features</a><a href="#setup">Setup</a>
+    </nav>
+    <button class="button ghost" id="openSettings">Customize</button>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="eyebrow"><span class="pulse"></span> Local-first workspace control</div>
+      <h1>Your desk,<br><em>without the borders.</em></h1>
+      <p class="hero-copy">Arrange your computers once. Then glide between them, carry your clipboard, and send files—all from one calm control center.</p>
+      <div class="hero-actions"><a class="button primary" href="/downloads/">Download Across <span>↗</span></a><button class="button text-button" id="tourButton">Explore the demo</button></div>
+      <div class="hero-stats" aria-label="Product qualities"><div><strong>Local</strong><span>No cloud relay</span></div><div><strong>Encrypted</strong><span>TLS 1.3 connections</span></div><div><strong>Desktop</strong><span>Mac & Windows</span></div></div>
+      <div class="orbit-card" aria-hidden="true"><div class="orbit"></div><div class="mini-device a">Mac</div><div class="mini-device b">PC</div><div class="mini-device c">Linux</div><svg viewBox="0 0 560 360"><path d="M110 210 C190 65 380 70 455 195"/><circle cx="345" cy="101" r="5"/></svg></div>
+    </section>
+
+    <section class="workspace-section" id="workspace">
+      <div class="section-heading"><div><span class="kicker">Interactive concept demo</span><h2>Make the map match your desk.</h2></div><p>This browser demo simulates a workspace; it does not control your computers. <a href="/downloads/">Install the Mac or Windows app</a> for native sharing. Linux is illustrative only.</p></div>
+      <div class="app-shell">
+        <aside class="sidebar">
+          <div class="side-brand"><span>A↗</span><b>Across</b></div>
+          <button class="nav-item active" data-view="desk"><span>⌘</span>Desk</button>
+          <button class="nav-item" data-view="clipboard"><span>▱</span>Clipboard <i id="clipCount">3</i></button>
+          <button class="nav-item" data-view="transfers"><span>⇅</span>Transfers</button>
+          <button class="nav-item" data-view="automations"><span>◇</span>Routines <i>4</i></button>
+          <div class="sidebar-bottom"><div class="identity"><span class="avatar">SS</span><div><b>My workspace</b><small>Encrypted LAN</small></div></div><button class="icon-button" id="sideSettings" aria-label="Open settings">⚙</button></div>
+        </aside>
+        <div class="app-main">
+          <header class="app-header"><div><span class="app-kicker">Home office</span><h3 id="viewTitle">Desk map</h3></div><div class="app-actions"><span class="network"><i></i> Excellent · 4 ms</span><button class="button small" id="addDevice">＋ Add device</button></div></header>
+          <div class="view active" id="deskView">
+            <div class="desk-toolbar"><button class="tool active" data-mode="move">↔ Move</button><button class="tool" data-mode="test">⌁ Test handoff</button><button class="tool" id="fitDesk">⊡ Fit</button><span>Drag to match your physical layout</span></div>
+            <div class="desk-canvas" id="deskCanvas">
+              <div class="grid"></div><div class="path-line"></div>
+              <article class="device-card mac selected" data-device="Studio Mac" style="left:8%;top:22%"><div class="device-top"><span>● ● ●</span><i>HOST</i></div><div class="device-screen"><span class="device-icon">⌘</span><div><b>Studio Mac</b><small>macOS · 2560×1440</small></div></div><footer><span><i class="online"></i>Connected</span><strong>2 ms</strong></footer></article>
+              <article class="device-card pc" data-device="Design PC" style="left:46%;top:13%"><div class="device-top"><span>□</span><i>CLIENT</i></div><div class="device-screen"><span class="device-icon">⊞</span><div><b>Design PC</b><small>Windows · 3440×1440</small></div></div><footer><span><i class="online"></i>Connected</span><strong>4 ms</strong></footer></article>
+              <article class="device-card laptop" data-device="ThinkPad" style="left:57%;top:58%"><div class="device-top"><span>◇</span><i>CLIENT</i></div><div class="device-screen"><span class="device-icon">⌁</span><div><b>ThinkPad</b><small>Linux · 1920×1200</small></div></div><footer><span><i class="online"></i>Connected</span><strong>6 ms</strong></footer></article>
+              <div class="handoff-dot" id="handoffDot"></div>
+            </div>
+            <div class="quick-row"><button class="quick" id="focusToggle"><span>◉</span><div><b>Focus mode</b><small>Off · quiet all clients</small></div><i class="switch"></i></button><button class="quick" id="dimToggle"><span>◐</span><div><b>Dim inactive displays</b><small>Set to 35%</small></div><i class="switch on"></i></button><button class="quick" id="lockAll"><span>◇</span><div><b>Lock all</b><small>Secure every device</small></div><kbd>⌘⇧L</kbd></button></div>
+          </div>
+          <div class="view" id="clipboardView"><div class="panel-title"><div><h4>Clipboard shelf</h4><p>Recent items shared across this workspace.</p></div><button class="button small" id="clearClipboard">Clear history</button></div><div class="clipboard-list" id="clipboardList"></div></div>
+          <div class="view" id="transfersView"><div class="drop-zone" id="dropZone"><span>⇧</span><h4>Drop files to send</h4><p>Simulated in this demo · nothing leaves your browser</p><input id="fileInput" type="file" multiple><button class="button small" id="chooseFiles">Choose files</button></div><div class="transfer-list" id="transferList"></div></div>
+          <div class="view" id="automationsView"><div class="panel-title"><div><h4>Workspace routines</h4><p>Small automations that travel with you.</p></div><button class="button small" id="addRoutine">＋ New routine</button></div><div class="routine-grid" id="routineGrid"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="feature-section" id="features">
+      <div class="section-heading"><div><span class="kicker">Built for flow</span><h2>The useful things, thoughtfully joined.</h2></div><p>Explore the concept here, then see the supported features and limits on the download page.</p></div>
+      <div class="feature-grid">
+        <article class="feature wide"><span class="feature-no">01</span><div><h3>Edge-aware handoff</h3><p>Cross only where your screens touch, with a configurable dwell guard that prevents accidental hops.</p></div><div class="edge-demo"><div class="screen-one">A</div><div class="beam"><i></i></div><div class="screen-two">B</div></div></article>
+        <article class="feature"><span class="feature-no">02</span><h3>Shortcut translation</h3><p>Keep muscle memory intact when moving between operating systems.</p><div class="key-map"><kbd>⌘</kbd><span>becomes</span><kbd>Ctrl</kbd></div></article>
+        <article class="feature coral"><span class="feature-no">03</span><h3>Private by design</h3><p>Pair with explicit approval. Encrypt traffic. Keep transfers on your network.</p><div class="cipher">7F · A2 · 9C · 41<br>LOCAL / VERIFIED</div></article>
+        <article class="feature"><span class="feature-no">04</span><h3>Workspace profiles</h3><p>Switch between Focus, Gaming, Presentation, and your own input presets.</p><div class="profile-pills"><span>Focus</span><span>Gaming</span><span>Present</span></div></article>
+      </div>
+    </section>
+
+    <section class="setup-section" id="setup"><span class="kicker">From zero to flowing</span><h2>Three quiet steps.</h2><div class="steps"><article><span>1</span><h3>Install</h3><p>Place the companion on each trusted computer.</p></article><article><span>2</span><h3>Pair</h3><p>Approve the one-time code over your local network.</p></article><article><span>3</span><h3>Arrange</h3><p>Mirror your desk, then move through the edges.</p></article></div><a href="#workspace" class="button primary">Try the interactive workspace</a></section>
+  </main>
+
+  <footer><a class="brand" href="#top"><span class="brand-mark">A↗</span><span>across</span></a><p>An independent desktop engineering preview. Built from scratch; not affiliated with CursorHop.</p><a href="/downloads/">Downloads ↗</a><a href="https://github.com/HrishikeshSriramoju/across">Source on GitHub ↗</a></footer>
+
+  <div class="toast" id="toast" role="status"></div>
+  <dialog id="settingsDialog"><form method="dialog"><header><div><span class="kicker">Personalize</span><h3>Make Across yours.</h3></div><button class="icon-button" value="close" aria-label="Close">×</button></header><div class="settings-grid"><label>Workspace name<input id="workspaceName" value="Home office"></label><label>Accent color<div class="swatches"><button type="button" data-color="#d8ff57" style="--swatch:#d8ff57" aria-label="Lime"></button><button type="button" data-color="#ff795d" style="--swatch:#ff795d" aria-label="Coral"></button><button type="button" data-color="#70d7ff" style="--swatch:#70d7ff" aria-label="Blue"></button><button type="button" data-color="#c6a6ff" style="--swatch:#c6a6ff" aria-label="Violet"></button></div></label><label>Edge dwell <span id="dwellValue">120 ms</span><input id="dwell" type="range" min="0" max="500" step="20" value="120"></label><label>Active profile<select id="profile"><option>Balanced</option><option>Focus</option><option>Gaming</option><option>Presentation</option></select></label><label class="check-row"><span><b>Shortcut translation</b><small>Map Command ↔ Control</small></span><input type="checkbox" id="shortcuts" checked></label><label class="check-row"><span><b>Clipboard history</b><small>Keep the latest 20 items</small></span><input type="checkbox" id="clipHistory" checked></label></div><button class="button primary dialog-save" value="save" id="saveSettings">Save workspace</button></form></dialog>
+  <script src="app.js"></script>
+</body>
+</html>

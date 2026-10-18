@@ -1,0 +1,16 @@
+**/node_modules/
+**/release/
+**/*.app/
+**/native/bin/
+**/.DS_Store
+**/.env
+**/.env.*
+**/.openai/
+**/.sites-runtime/
+**/*.enc
+**/identity.json
+**/preferences.json
+*.dmg
+*.zip
+*.tar.gz
+*.log

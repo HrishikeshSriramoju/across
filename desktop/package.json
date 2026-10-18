@@ -1,0 +1,28 @@
+{
+  "name": "across-desktop",
+  "version": "0.1.4",
+  "description": "Across — personal Mac and Windows keyboard, mouse, clipboard and file sharing",
+  "author": "Across contributors",
+  "license": "MIT",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "check": "node --check src/main.cjs && node --check src/link.cjs && node --check src/renderer.js && node --check src/geometry.cjs && node --check src/discovery.cjs && node --check src/shortcuts.cjs && node --check src/shortcut-recorder.js",
+    "build:mac": "node scripts/prepare-mac.cjs && electron-builder --mac dir --arm64",
+    "build:win": "electron-builder --win zip --x64"
+  },
+  "dependencies": { "selfsigned": "5.5.0" },
+  "devDependencies": { "electron": "44.9.0", "electron-builder": "26.15.3" },
+  "build": {
+    "appId": "dev.across.personal",
+    "productName": "Across",
+    "directories": { "output": "release/0.1.4" },
+    "files": ["src/**/*", "package.json"],
+    "extraResources": [{ "from": "native", "to": "native", "filter": ["Across Input.app/**/*", "WindowsInput.ps1"] }],
+    "mac": { "icon": "assets/Across.icns", "category": "public.app-category.utilities", "identity": null, "hardenedRuntime": false, "extendInfo": { "NSInputMonitoringUsageDescription": "Across shares input with the computers you explicitly pair.", "NSAccessibilityUsageDescription": "Across needs Accessibility to control paired computers and release input safely.", "NSLocalNetworkUsageDescription": "Across finds and connects to your computers on your local network." } },
+    "win": { "target": "zip", "signAndEditExecutable": false },
+    "artifactName": "Across-${version}-${os}-${arch}.${ext}"
+    ,"afterPack": "scripts/sign-mac.cjs"
+  }
+}
