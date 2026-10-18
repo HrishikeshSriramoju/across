@@ -1,6 +1,6 @@
 {
   "name": "across-desktop",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Across — personal Mac and Windows keyboard, mouse, clipboard and file sharing",
   "author": "Across contributors",
   "license": "MIT",
@@ -17,7 +17,7 @@
   "build": {
     "appId": "dev.across.personal",
     "productName": "Across",
-    "directories": { "output": "release/0.1.4" },
+    "directories": { "output": "release/0.1.5" },
     "files": ["src/**/*", "package.json"],
     "extraResources": [{ "from": "native", "to": "native", "filter": ["Across Input.app/**/*", "WindowsInput.ps1"] }],
     "mac": { "icon": "assets/Across.icns", "category": "public.app-category.utilities", "identity": null, "hardenedRuntime": false, "extendInfo": { "NSInputMonitoringUsageDescription": "Across shares input with the computers you explicitly pair.", "NSAccessibilityUsageDescription": "Across needs Accessibility to control paired computers and release input safely.", "NSLocalNetworkUsageDescription": "Across finds and connects to your computers on your local network." } },

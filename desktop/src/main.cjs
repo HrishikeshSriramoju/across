@@ -4,6 +4,12 @@ const fs=require('node:fs');const fsp=fs.promises;const path=require('node:path'
 const {Link}=require('./link.cjs');const {Discovery}=require('./discovery.cjs');const {route,snap,validRect,clamp}=require('./geometry.cjs');
 const {parseShortcut,validateShortcuts}=require('./shortcuts.cjs');
 const {TrustStore}=require('./trust-store.cjs');
+const {showWindow,keepWindowInTray,powerPolicy,trayImage}=require('./background.cjs');
+const primaryInstance=app.requestSingleInstanceLock();
+if(!primaryInstance)app.quit();
+if(process.platform==='win32')app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.on('second-instance',()=>showWindow(win));
+app.on('window-all-closed',()=>{}); // The tray owns application lifetime, even on Windows.
 const defaults={name:os.hostname().slice(0,64),port:45876,accent:'#dcff65',dwell:120,deadCorner:20,speed:1,scrollSpeed:1,reverseScroll:false,translate:true,clipboard:false,richClipboard:false,dim:false,dimOpacity:.35,awake:false,game:false,followKeyboard:false,powerSync:false,startup:false,releaseHotkey:'Control+Alt+Escape',hopHotkey:'Control+Alt+Space',layout:{},profiles:{}};
 let win,tray,config,identity,link,helper,helperReady=false,helperBounds,helperStatus='Input is off',role='idle',remote=null,pointer={x:0,y:0},edgeSince=0,lastEdge='',lastLocal={x:0,y:0},lastClip='',clipTimer,powerId=null,invite='',udp,discoveryTimer,hostPort,paused=false,dimWindows=[],quitting=false;
 let logs=[],transfers=[],discovered=new Map(),incoming=new Map(),outgoing=new Map(),pendingApprovals=0,clipboardBusy=false;
@@ -11,7 +17,7 @@ let remoteConfirmed=false,remoteEpoch=0,captureTimer;
 let nativeShortcuts=false,recordingShortcut=false,recordingTimer;
 defaults.cursorLockHotkey='Control+Alt+L';
 defaults.autoReconnect=true;defaults.autoHost=false;
-let trustStore=null,reconnectPaused=false,connectionBusy=false,lastReconnect=0;
+let trustStore=null,reconnectPaused=false,connectionBusy=false,lastReconnect=0,powerType=null;
 const resources=()=>app.isPackaged?process.resourcesPath:app.getAppPath();
 const configPath=()=>path.join(app.getPath('userData'),'preferences.json');
 const save=()=>fs.writeFileSync(configPath(),JSON.stringify(config,null,2),{mode:0o600});
@@ -42,7 +48,7 @@ function handleNative(e){
     else release();return;
   }
   if(e.type==='ready'){
-    helperReady=!!e.trusted;nativeShortcuts=helperReady&&e.shortcuts===true;helperStatus=helperReady?'Input ready':'Accessibility permission required';if(validRect(e.bounds))helperBounds=e.bounds;shortcuts();
+    helperReady=!!e.trusted;nativeShortcuts=helperReady&&e.shortcuts===true;helperStatus=helperReady?'Input ready':'Accessibility permission required';if(validRect(e.bounds))helperBounds=e.bounds;shortcuts();awake();
     if(link){link.metadata=info();for(const c of link.channels.values())c.send({type:'info',info:info()});}broadcast();return;
   }
   if(e.type==='permission'){helperStatus=String(e.message||'Waiting for input permission…');broadcast();return;}
@@ -84,11 +90,11 @@ async function startHelper(){
   readline.createInterface({input:helper.stdout}).on('line',line=>{try{handleNative(JSON.parse(line));}catch{}});
   helper.stderr.on('data',d=>{helperStatus=String(d).slice(0,240);broadcast();});
   helper.on('error',e=>{helperStatus=e.message;log(e.message);});
-  helper.on('exit',()=>{helper=null;helperReady=false;nativeShortcuts=false;release();shortcuts();if(helperStatus==='Input ready')helperStatus='Input stopped';broadcast();});
+  helper.on('exit',()=>{helper=null;helperReady=false;nativeShortcuts=false;release();shortcuts();awake();if(helperStatus==='Input ready')helperStatus='Input stopped';broadcast();});
 }
-async function stopHelper(){release();sendNative({op:'quit'});if(helper){const p=helper;setTimeout(()=>{if(p.exitCode===null)p.kill();},1000);}helperReady=false;helperStatus='Input is off';broadcast();}
+async function stopHelper(){release();sendNative({op:'quit'});if(helper){const p=helper;setTimeout(()=>{if(p.exitCode===null)p.kill();},1000);}helperReady=false;helperStatus='Input is off';awake();broadcast();}
 function addresses(){return Object.values(os.networkInterfaces()).flat().filter(v=>v&&v.family==='IPv4'&&!v.internal).map(v=>v.address);}
-function awake(){if(config.awake&&link?.channels.size){if(powerId===null)powerId=powerSaveBlocker.start('prevent-display-sleep');}else if(powerId!==null){powerSaveBlocker.stop(powerId);powerId=null;}}
+function awake(){const wanted=powerPolicy(helperReady,!!link?.channels.size,config.awake);if(wanted===powerType)return;const previous=powerId;powerId=wanted?powerSaveBlocker.start(wanted):null;powerType=wanted;if(previous!==null)powerSaveBlocker.stop(previous);}
 function discovery(){
   if(udp)return;
   udp=new Discovery(instance,()=>os.networkInterfaces(),()=>({name:config.name,platform:process.platform,hosting:role==='host'&&!!link?.server,ready:role==='host'&&!!link?.server&&Date.now()<link.expires,port:hostPort,pin:role==='host'?new crypto.X509Certificate(identity.cert).fingerprint256:undefined}));
@@ -204,15 +210,16 @@ async function action(name,args){
   }return snapshot();
 }
 app.whenReady().then(async()=>{
+  if(!primaryInstance)return;
   config={...defaults};try{config={...defaults,...JSON.parse(await fsp.readFile(configPath(),'utf8'))};}catch{}
   try{const cipher=require('electron').safeStorage;if(cipher.isEncryptionAvailable())trustStore=new TrustStore(path.join(app.getPath('userData'),'trusted-devices.enc'),cipher);else log('Remembered pairing unavailable: OS credential protection is not ready.');}catch(e){log('Remembered pairing unavailable: '+e.message);}
   const certPath=path.join(app.getPath('userData'),'identity.json');try{identity=JSON.parse(await fsp.readFile(certPath,'utf8'));new crypto.X509Certificate(identity.cert);}catch{identity=await require('selfsigned').generate([{name:'commonName',value:'Across local peer'}],{keySize:2048,algorithm:'sha256',days:3650});await fsp.writeFile(certPath,JSON.stringify({private:identity.private,cert:identity.cert}),{mode:0o600});}
-  win=new BrowserWindow({width:1190,height:850,minWidth:840,minHeight:650,title:'Across',backgroundColor:'#141714',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+  win=new BrowserWindow({width:1190,height:850,minWidth:840,minHeight:650,title:'Across',backgroundColor:'#141714',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false}});
+  keepWindowInTray(win,{isQuitting:()=>quitting,hasTray:()=>!!tray&&!tray.isDestroyed()});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.webContents.session.setPermissionRequestHandler((_w,_p,done)=>done(false));
   ipcMain.handle('action',async(event,name,args={})=>{if(event.sender!==win.webContents||event.senderFrame!==win.webContents.mainFrame)throw new Error('Untrusted sender');try{return{ok:true,state:await action(name,args)}}catch(e){log(e.message);return{ok:false,error:e.message,state:snapshot()}}});
-  await win.loadFile(path.join(__dirname,'index.html'));win.on('close',e=>{if(!quitting){e.preventDefault();win.hide();}});
-  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" rx="10" fill="#dcff65"/><text x="5" y="23" font-size="22" font-family="Arial" fill="#141714">A</text></svg>';
-  tray=new Tray(nativeImage.createFromDataURL('data:image/svg+xml;base64,'+Buffer.from(svg).toString('base64')));tray.setToolTip('Across — Ctrl+Alt+Esc releases control');tray.setContextMenu(Menu.buildFromTemplate([{label:'Open Across',click:()=>win.show()},{label:'Release input',click:release},{label:'Disconnect',click:disconnect},{type:'separator'},{label:'Quit Across',click:()=>{quitting=true;app.quit();}}]));tray.on('click',()=>win.show());
+  await win.loadFile(path.join(__dirname,'index.html'));
+  tray=new Tray(trayImage(nativeImage));tray.setToolTip('Across — running in background; Ctrl+Alt+Esc releases control');tray.setContextMenu(Menu.buildFromTemplate([{label:'Open Across',click:()=>showWindow(win)},{label:'Release input',click:release},{label:'Disconnect',click:disconnect},{type:'separator'},{label:'Quit Across',click:()=>{quitting=true;app.quit();}}]));tray.on('click',()=>showWindow(win));tray.on('double-click',()=>showWindow(win));
   shortcuts();discovery();clipTimer=setInterval(()=>{pollClipboard().catch(e=>log(e.message));},800);
   if(config.autoHost&&config.autoReconnect)try{await action('host',{});}catch(e){log('Automatic hosting unavailable: '+e.message);}
   setInterval(()=>{sendNative({op:'heartbeat'});},400);
@@ -221,7 +228,7 @@ app.whenReady().then(async()=>{
     for(const c of link?.channels.values()||[]){if(Date.now()-c.lastSeen>7000){c.destroy();continue;}c.send({type:'ping',at:Date.now()});}broadcast();
   },2000);
   powerMonitor.on('suspend',()=>{release();});powerMonitor.on('lock-screen',()=>{release();if(config.powerSync)for(const c of link?.channels.values()||[])c.send({type:'lock'});});
-  app.on('activate',()=>win.show());log('Ready. Host a workspace or paste a pairing invite.');
+  app.on('activate',()=>showWindow(win));log('Ready. Minimize or close this window to keep sharing in the tray. Use Quit Across to stop.');
 }).catch(e=>{dialog.showErrorBox('Across could not start',e.message);app.quit();});
-app.on('before-quit',()=>{quitting=true;release();link?.close();sendNative({op:'quit'});helper?.kill();udp?.close();clearInterval(clipTimer);clearInterval(discoveryTimer);globalShortcut.unregisterAll();for(const t of incoming.values()){try{if(t.fd!==null)fs.closeSync(t.fd);fs.unlinkSync(t.temp);}catch{}}});
+app.on('before-quit',()=>{quitting=true;release();link?.close();sendNative({op:'quit'});helper?.kill();udp?.close();if(powerId!==null){powerSaveBlocker.stop(powerId);powerId=null;powerType=null;}clearInterval(clipTimer);clearInterval(discoveryTimer);globalShortcut.unregisterAll();for(const t of incoming.values()){try{if(t.fd!==null)fs.closeSync(t.fd);fs.unlinkSync(t.temp);}catch{}}});
 process.on('uncaughtException',e=>{release();log('Error: '+e.message);});

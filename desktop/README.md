@@ -2,7 +2,7 @@
 
 Across is an independently written desktop app for sharing input and data between your Mac and Windows computers. It uses an original interface and protocol. No CursorHop code, keys, binaries, artwork or subscription logic are included.
 
-Version 0.1.4 adds native-helper shortcut handling, modifier cleanup on handoff, recorded shortcuts for release/switch/cursor lock, and remembered pairing with automatic reconnection. Update both computers and pair once after updating to create remembered credentials. See [UPDATE_0.1.4.md](UPDATE_0.1.4.md). This is not a completed replacement for every CursorHop feature. The precise status is in [FEATURES.md](FEATURES.md).
+Version 0.1.5 is a Windows background-sharing maintenance update. Minimize or close to the tray without stopping input; reopen from the tray, and use Quit Across to exit. Existing Mac 0.1.4 is compatible and remembered pairings are retained. See [UPDATE_0.1.5.md](UPDATE_0.1.5.md). Version 0.1.4 introduced remembered pairing and recorded shortcuts; see [UPDATE_0.1.4.md](UPDATE_0.1.4.md). This is not a completed replacement for every CursorHop feature. The precise status is in [FEATURES.md](FEATURES.md).
 
 ## Install and pair
 
@@ -80,4 +80,4 @@ The helpers observe pointer motion for edge detection while input is enabled. Th
 - The Mac helper compiled for ARM64/macOS 13+, detected two physical displays with a negative origin, and failed closed while Accessibility was unavailable.
 - The Windows ZIP contains an x64 Windows executable and native helper source. Windows runtime and physical Mac↔Windows input, clipboard and file transfer require the user's Windows computer.
 
-See [RESEARCH.md](RESEARCH.md) for artifact evidence and [FEATURES.md](FEATURES.md) for the feature parity limits.
+See [FEATURES.md](FEATURES.md) for feature limits and [UPDATE_0.1.5.md](UPDATE_0.1.5.md) for background-sharing tests and update instructions.

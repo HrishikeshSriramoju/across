@@ -2,7 +2,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs'),path=require('node:path'),{createRequire}=require('node:module');
 function harness(){
   const file=path.join(__dirname,'../src/main.cjs'),localRequire=createRequire(file),timers=new Map();let next=0;
-  const electron={app:{whenReady:()=>new Promise(()=>{}),on:()=>{},getPath:()=>'/unused-test-path'},globalShortcut:{unregisterAll:()=>{},register:()=>true},screen:{getAllDisplays:()=>[{id:1,bounds:{x:0,y:0,width:1920,height:1080},scaleFactor:1}]}};
+  const electron={app:{requestSingleInstanceLock:()=>true,whenReady:()=>new Promise(()=>{}),on:()=>{},getPath:()=>'/unused-test-path'},globalShortcut:{unregisterAll:()=>{},register:()=>true},screen:{getAllDisplays:()=>[{id:1,bounds:{x:0,y:0,width:1920,height:1080},scaleFactor:1}]}};
   const context={require:name=>name==='electron'?electron:name==='node:fs'?{...fs,writeFileSync:()=>{}}:localRequire(name),process:{platform:'darwin',on:()=>{}},__dirname:path.dirname(file),Buffer,console,setTimeout:fn=>{timers.set(++next,fn);return next;},clearTimeout:id=>timers.delete(id),setInterval:()=>0,clearInterval:()=>{}};
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(file,'utf8')+`\n globalThis.testBridge={
