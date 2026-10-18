@@ -12,7 +12,6 @@ An original Mac and Windows desktop app for sharing a keyboard, mouse, opt-in cl
 - [Windows update notes and checksum](https://github.com/HrishikeshSriramoju/across/releases/tag/v0.1.5)
 - [Mac release and checksums](https://github.com/HrishikeshSriramoju/across/releases/tag/v0.1.4)
 
-No ChatGPT login or subscription is required to visit the website or download the apps.
 
 The Mac preview is locally development-signed, not Apple Developer ID-signed or notarized. The Windows preview has no publisher certificate. Do not disable OS security protections. Only Apple Silicon Mac and x64 Windows packages are provided; Linux in the interactive web demo is illustrative, not a supported desktop package.
 
