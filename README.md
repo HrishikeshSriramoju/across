@@ -4,9 +4,13 @@ An original Mac and Windows desktop app for sharing a keyboard, mouse, opt-in cl
 
 **Engineering preview: Windows 0.1.6, Mac 0.1.6.** This update repairs input handoff timing, rejects stale capture events, uses unclamped Windows mouse movement, and removes the original cursor's center jump. Update both computers. This is independently implemented software, not a copy of CursorHop. No proprietary CursorHop code, assets, licenses, or subscription bypasses are included.
 
+## Website
+
+**[across on GitHub Pages](https://hrishikeshsriramoju.github.io/across/)** — free public hosting, with Mac and Windows downloads.
+
 ## Downloads
 
-- [Download page](https://across-device-workspace.gentlecream6.chatgpt.site/downloads/)
+- [Download page](https://hrishikeshsriramoju.github.io/across/downloads/)
 - [Mac — Apple Silicon DMG](https://github.com/HrishikeshSriramoju/across/releases/download/v0.1.6/Across-0.1.6-mac-arm64.dmg)
 - [Windows — x64 ZIP](https://github.com/HrishikeshSriramoju/across/releases/download/v0.1.6/Across-0.1.6-win-x64.zip)
 - [Windows update notes and checksum](https://github.com/HrishikeshSriramoju/across/releases/tag/v0.1.6)
@@ -30,7 +34,9 @@ Approved devices keep OS-encrypted credentials for local-network reconnection wi
 
 ```text
 desktop/   Electron app, Mac Swift helper, Windows PowerShell/C# helper, tests
-website/   Public landing page, interactive concept demo, download page
+website/   Website source: landing page, interactive concept demo, download page
+docs/      Generated static website published by GitHub Pages
+scripts/   Website publishing helper
 ```
 
 Local preferences, device identities, remembered credentials, build dependencies, and personal files are deliberately not included. Installers live in Releases rather than Git history.
@@ -49,7 +55,9 @@ npm start
 
 On Mac, `npm run build:mac` compiles and packages the native helper. `npm run build:win` creates the Windows x64 ZIP; producing a package on Mac does not verify Windows runtime behavior. Native Mac regression tests are skipped when their compiled helper is absent.
 
-The website is buildless HTML/CSS/JS. Serve `website/` with a static HTTP server. The hosted Sites deployment is managed separately.
+The website is buildless HTML/CSS/JS. Edit `website/`, run `node scripts/publish-website.cjs`, and commit both `website/` and `docs/`. GitHub Pages publishes the `/docs` folder on `main` automatically. The `.nojekyll` marker serves the static files without a Jekyll build. Relative navigation works under the project path `/across/`. Installers remain in GitHub Releases, not the Pages site.
+
+For local testing, serve the repository root with a static HTTP server and open `/docs/` and `/docs/downloads/`. The previous hosted site is left online as a fallback; the GitHub Pages URL above is now the primary address.
 
 ## Status and limitations
 
