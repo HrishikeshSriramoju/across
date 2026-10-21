@@ -13,10 +13,11 @@ app.on('window-all-closed',()=>{}); // The tray owns application lifetime, even 
 const defaults={name:os.hostname().slice(0,64),port:45876,accent:'#dcff65',dwell:120,deadCorner:20,speed:1,scrollSpeed:1,reverseScroll:false,translate:true,clipboard:false,richClipboard:false,dim:false,dimOpacity:.35,awake:false,game:false,followKeyboard:false,powerSync:false,startup:false,releaseHotkey:'Control+Alt+Escape',hopHotkey:'Control+Alt+Space',layout:{},profiles:{}};
 let win,tray,config,identity,link,helper,helperReady=false,helperBounds,helperStatus='Input is off',role='idle',remote=null,pointer={x:0,y:0},edgeSince=0,lastEdge='',lastLocal={x:0,y:0},lastClip='',clipTimer,powerId=null,invite='',udp,discoveryTimer,hostPort,paused=false,dimWindows=[],quitting=false;
 let logs=[],transfers=[],discovered=new Map(),incoming=new Map(),outgoing=new Map(),pendingApprovals=0,clipboardBusy=false;
-let remoteConfirmed=false,remoteEpoch=0,captureTimer;
+let remoteConfirmed=false,remoteEpoch=0,captureTimer,edgeRearmUntil=0;
 let nativeShortcuts=false,recordingShortcut=false,recordingTimer;
 defaults.cursorLockHotkey='Control+Alt+L';
 defaults.autoReconnect=true;defaults.autoHost=false;
+defaults.inputEnabled=false;
 let trustStore=null,reconnectPaused=false,connectionBusy=false,lastReconnect=0,powerType=null;
 const resources=()=>app.isPackaged?process.resourcesPath:app.getAppPath();
 const configPath=()=>path.join(app.getPath('userData'),'preferences.json');
@@ -32,13 +33,14 @@ function rects(){
 function snapshot(){return{version:app.getVersion(),platform:process.platform,config,role,helperReady,helperStatus,connectionBusy,trustedDevices:trustStore?.values().map(r=>({id:r.id,name:r.name,kind:r.kind,pin:r.kind==='host'?r.pin:undefined}))||[],paused,active:remote||'local',invite,pairingCode:role==='host'&&link?link.pairingCode.match(/.{4}/g).join('-'):'',addresses:addresses(),port:hostPort||config.port,devices:[{id:'local',...info()},...[...(link?.channels.values()||[])].map(c=>({id:c.id,...c.info,latency:c.latency??null}))],rects:rects(),logs,transfers,discovered:[...discovered.values()]};}
 function broadcast(){if(win&&!win.isDestroyed())win.webContents.send('state',snapshot());}
 function sendNative(command){if(helper&&!helper.killed&&helper.stdin.writable)helper.stdin.write(JSON.stringify(command)+'\n');}
-function release(){const previous=remote;remote=null;remoteConfirmed=false;remoteEpoch++;edgeSince=0;lastEdge='';clearTimeout(captureTimer);sendNative({op:'remote',enabled:false});sendNative({op:'release'});for(const c of link?.channels.values()||[])c.send({type:'release'});if(previous){const b=bounds();sendNative({op:'warp',x:clamp(lastLocal.x,b.x+3,b.x+b.width-4),y:clamp(lastLocal.y,b.y+3,b.y+b.height-4)});}closeDimming();broadcast();}
+function release(){const previous=remote;remote=null;remoteConfirmed=false;remoteEpoch++;edgeSince=0;lastEdge='';clearTimeout(captureTimer);sendNative({op:'remote',enabled:false,requestId:remoteEpoch});sendNative({op:'release'});for(const c of link?.channels.values()||[])c.send({type:'release'});if(previous){edgeRearmUntil=Date.now()+180;const b=bounds();sendNative({op:'warp',x:clamp(lastLocal.x,b.x+3,b.x+b.width-4),y:clamp(lastLocal.y,b.y+3,b.y+b.height-4)});}closeDimming();broadcast();}
+function publishInputInfo(){if(link){link.metadata=info();for(const c of link.channels.values())c.send({type:'info',info:info()});}broadcast();}
 function closeDimming(){for(const w of dimWindows)if(!w.isDestroyed())w.close();dimWindows=[];}
 function showDimming(){closeDimming();if(!config.dim)return;for(const display of screen.getAllDisplays()){const w=new BrowserWindow({...display.bounds,frame:false,transparent:true,alwaysOnTop:true,skipTaskbar:true,focusable:false,resizable:false,webPreferences:{sandbox:true,nodeIntegration:false,contextIsolation:true}});w.setIgnoreMouseEvents(true);w.loadURL('data:text/html,'+encodeURIComponent('<!doctype html><html style="background:rgba(0,0,0,'+config.dimOpacity+')"></html>'));dimWindows.push(w);}}
 function setRemote(id,p){
   const c=link?.channels.get(id);if(!c||!c.info.inputReady||!helperReady)return false;
   if(remote&&remote!==id)link.channels.get(remote)?.send({type:'release'});
-  remote=id;pointer=p;remoteEpoch++;remoteConfirmed=process.platform!=='darwin';clearTimeout(captureTimer);sendNative({op:'remote',enabled:true,requestId:remoteEpoch});if(!remoteConfirmed)captureTimer=setTimeout(()=>{if(remote&&!remoteConfirmed){release();log('Input handoff cancelled: the Mac helper did not confirm local capture.');}},1500);else c.send({type:'input',event:{type:'move',x:c.info.bounds.x+p.x,y:c.info.bounds.y+p.y}});showDimming();broadcast();return true;
+  remote=id;pointer=p;remoteEpoch++;remoteConfirmed=false;clearTimeout(captureTimer);sendNative({op:'remote',enabled:true,requestId:remoteEpoch});captureTimer=setTimeout(()=>{if(remote&&!remoteConfirmed){release();log('Input handoff cancelled: the native helper did not confirm local capture.');}},1500);showDimming();broadcast();return true;
 }
 function handleNative(e){
   if(e.type==='shortcut'){if(!recordingShortcut&&['release','hop','cursor-lock'].includes(e.action))runShortcut(e.action);return;}
@@ -49,17 +51,21 @@ function handleNative(e){
   }
   if(e.type==='ready'){
     helperReady=!!e.trusted;nativeShortcuts=helperReady&&e.shortcuts===true;helperStatus=helperReady?'Input ready':'Accessibility permission required';if(validRect(e.bounds))helperBounds=e.bounds;shortcuts();awake();
-    if(link){link.metadata=info();for(const c of link.channels.values())c.send({type:'info',info:info()});}broadcast();return;
+    publishInputInfo();return;
   }
   if(e.type==='permission'){helperStatus=String(e.message||'Waiting for input permission…');broadcast();return;}
   if(e.type==='error'){helperStatus=String(e.message||'Native input error');release();log(helperStatus);return;}
   if(e.type==='panic'){release();log('Control returned to this computer');return;}
   if(role!=='host'||!helperReady||paused)return;
   if(remote&&!remoteConfirmed)return;
+  // Frames already in the pipe must not be reinterpreted after a handoff.
+  if(remote&&(e.captured!==true||e.requestId!==remoteEpoch))return;
+  if(!remote&&e.captured===true)return;
   if(e.type==='move'){
     if(!Number.isFinite(e.x)||!Number.isFinite(e.y))return;
     if(!remote){
       lastLocal={x:e.x,y:e.y};const b=bounds(),px=e.x-b.x,py=e.y-b.y;
+      if(Date.now()<edgeRearmUntil)return;
       const edge=px<=1?'left':px>=b.width-2?'right':py<=1?'top':py>=b.height-2?'bottom':'';
       const corner=(px<config.deadCorner||px>b.width-config.deadCorner)&&(py<config.deadCorner||py>b.height-config.deadCorner);
       if(!edge||corner){edgeSince=0;lastEdge='';return;}
@@ -90,9 +96,9 @@ async function startHelper(){
   readline.createInterface({input:helper.stdout}).on('line',line=>{try{handleNative(JSON.parse(line));}catch{}});
   helper.stderr.on('data',d=>{helperStatus=String(d).slice(0,240);broadcast();});
   helper.on('error',e=>{helperStatus=e.message;log(e.message);});
-  helper.on('exit',()=>{helper=null;helperReady=false;nativeShortcuts=false;release();shortcuts();awake();if(helperStatus==='Input ready')helperStatus='Input stopped';broadcast();});
+  helper.on('exit',()=>{helper=null;helperReady=false;nativeShortcuts=false;release();shortcuts();awake();if(helperStatus==='Input ready')helperStatus='Input stopped';publishInputInfo();});
 }
-async function stopHelper(){release();sendNative({op:'quit'});if(helper){const p=helper;setTimeout(()=>{if(p.exitCode===null)p.kill();},1000);}helperReady=false;helperStatus='Input is off';awake();broadcast();}
+async function stopHelper(){release();sendNative({op:'quit'});if(helper){const p=helper;setTimeout(()=>{if(p.exitCode===null)p.kill();},1000);}helperReady=false;helperStatus='Input is off';awake();publishInputInfo();}
 function addresses(){return Object.values(os.networkInterfaces()).flat().filter(v=>v&&v.family==='IPv4'&&!v.internal).map(v=>v.address);}
 function awake(){const wanted=powerPolicy(helperReady,!!link?.channels.size,config.awake);if(wanted===powerType)return;const previous=powerId;powerId=wanted?powerSaveBlocker.start(wanted):null;powerType=wanted;if(previous!==null)powerSaveBlocker.stop(previous);}
 function discovery(){
@@ -121,7 +127,7 @@ function validInput(e){if(!e||!['move','key','button','scroll'].includes(e.type)
 async function handleMessage(c,m){
   if(m.type==='ping'){c.send({type:'pong',at:m.at});return;}
   if(m.type==='pong'){c.latency=Math.max(0,Date.now()-Number(m.at));return;}
-  if(m.type==='info'){const {validMetadata}=require('./link.cjs');if(validMetadata(m.info))c.info=m.info;broadcast();return;}
+  if(m.type==='info'){const {validMetadata}=require('./link.cjs');if(validMetadata(m.info)){c.info=m.info;if(remote===c.id&&!c.info.inputReady){release();log(c.info.name+' input is unavailable; control returned locally.');}}broadcast();return;}
   if(m.type==='input'&&role==='client'&&helperReady&&!paused&&validInput(m.event)){sendNative({op:'inject',event:m.event});return;}
   if(m.type==='release'){if(role==='host'&&remote===c.id)release();else sendNative({op:'release'});return;}
   if(m.type==='clipboard'&&config.clipboard&&typeof m.text==='string'&&m.text.length<=500000){
@@ -194,8 +200,8 @@ async function action(name,args){
     case 'connect':await joinHost(l=>l.connect(args.invite));break;
     case 'disconnect':reconnectPaused=true;config.autoHost=false;save();await disconnect();break;
     case 'forget-device':if(!trustStore?.get(args.id))throw new Error('Device not found');trustStore.delete(args.id);for(const c of link?.channels.values()||[])if(c.trustId===args.id){if(remote===c.id)release();c.destroy();}log('Forgot device. A new approved pairing will be required.');broadcast();break;
-    case 'enable-input':await startHelper();break;
-    case 'disable-input':await stopHelper();break;
+    case 'enable-input':config.inputEnabled=true;save();await startHelper();break;
+    case 'disable-input':config.inputEnabled=false;save();await stopHelper();break;
     case 'release':release();break;
     case 'pause':paused=!paused;release();break;
     case 'settings':updateSettings(args);break;
@@ -221,6 +227,7 @@ app.whenReady().then(async()=>{
   await win.loadFile(path.join(__dirname,'index.html'));
   tray=new Tray(trayImage(nativeImage));tray.setToolTip('Across — running in background; Ctrl+Alt+Esc releases control');tray.setContextMenu(Menu.buildFromTemplate([{label:'Open Across',click:()=>showWindow(win)},{label:'Release input',click:release},{label:'Disconnect',click:disconnect},{type:'separator'},{label:'Quit Across',click:()=>{quitting=true;app.quit();}}]));tray.on('click',()=>showWindow(win));tray.on('double-click',()=>showWindow(win));
   shortcuts();discovery();clipTimer=setInterval(()=>{pollClipboard().catch(e=>log(e.message));},800);
+  if(config.inputEnabled)await startHelper();
   if(config.autoHost&&config.autoReconnect)try{await action('host',{});}catch(e){log('Automatic hosting unavailable: '+e.message);}
   setInterval(()=>{sendNative({op:'heartbeat'});},400);
   discoveryTimer=setInterval(()=>{

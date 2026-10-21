@@ -1,3 +1,4 @@
+param([switch]$SelfTest)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Web.Extensions
@@ -16,9 +17,13 @@ public static class AcrossInput {
   static readonly UIntPtr Tag = new UIntPtr(0x41435253);
   static Hook keyboardProc=KeyboardHook, mouseProc=MouseHook;
   static IntPtr keyboardHook,mouseHook;
-  static Form dispatcher;
+  static InputWindow dispatcher;
   static bool remote, shuttingDown, havePoint;
   static int lastX,lastY;
+  static int captureEpoch;
+  static uint captureStarted;
+  static readonly Queue<object> outputQueue=new Queue<object>();
+  static readonly AutoResetEvent outputSignal=new AutoResetEvent(false);
   static long heartbeat;
   static readonly HashSet<int> physicalKeys=new HashSet<int>();
   static readonly HashSet<int> shortcutKeys=new HashSet<int>(),quietKeys=new HashSet<int>();
@@ -37,6 +42,43 @@ public static class AcrossInput {
   [StructLayout(LayoutKind.Sequential)] struct KEYINPUT { public ushort vk,scan; public uint flags,time; public UIntPtr extra; }
   [StructLayout(LayoutKind.Explicit)] struct INPUTUNION { [FieldOffset(0)] public MOUSEINPUT mouse; [FieldOffset(0)] public KEYINPUT key; }
   [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint type; public INPUTUNION data; }
+  [StructLayout(LayoutKind.Sequential)] struct RAWDEVICE {public ushort page,usage;public uint flags;public IntPtr target;}
+  [StructLayout(LayoutKind.Sequential)] struct RAWHEADER {public uint type,size;public IntPtr device,wParam;}
+  [StructLayout(LayoutKind.Sequential)] struct RAWMOUSE {public ushort flags;public uint buttons,rawButtons;public int x,y;public uint extra;}
+  [StructLayout(LayoutKind.Sequential)] struct MSG {public IntPtr hwnd;public uint message;public UIntPtr wParam;public IntPtr lParam;public uint time;public POINT pt;public uint reserved;}
+  [DllImport("user32.dll",SetLastError=true)] static extern bool RegisterRawInputDevices(RAWDEVICE[] devices,uint count,uint size);
+  [DllImport("user32.dll",SetLastError=true)] static extern uint GetRawInputData(IntPtr input,uint command,IntPtr data,ref uint size,uint headerSize);
+  [DllImport("user32.dll")] static extern int GetMessageTime();
+  [DllImport("kernel32.dll")] static extern uint GetTickCount();
+  [DllImport("user32.dll")] static extern bool PeekMessage(out MSG msg,IntPtr hwnd,uint min,uint max,uint remove);
+  [DllImport("user32.dll")] static extern IntPtr DispatchMessage(ref MSG msg);
+  class InputWindow:Form {
+    protected override void WndProc(ref Message message) {
+      if(message.Msg==0x00FF)ReadRawMouse(message.LParam);
+      base.WndProc(ref message);
+    }
+  }
+  static readonly Dictionary<IntPtr,POINT> absolutePoints=new Dictionary<IntPtr,POINT>();
+  static void ReadRawMouse(IntPtr input) {
+    uint size=0,header=(uint)Marshal.SizeOf(typeof(RAWHEADER));
+    if(GetRawInputData(input,0x10000003,IntPtr.Zero,ref size,header)!=0||size<header+24||size>4096)return;
+    IntPtr memory=Marshal.AllocHGlobal((int)size);
+    try {
+      if(GetRawInputData(input,0x10000003,memory,ref size,header)!=size)return;
+      var h=(RAWHEADER)Marshal.PtrToStructure(memory,typeof(RAWHEADER));if(h.type!=0)return;
+      var m=(RAWMOUSE)Marshal.PtrToStructure(IntPtr.Add(memory,(int)header),typeof(RAWMOUSE));
+      int dx=m.x,dy=m.y;
+      if((m.flags&1)!=0) {
+        bool virtualDesk=(m.flags&2)!=0;
+        var point=new POINT {x=(int)Math.Round(m.x*(GetSystemMetrics(virtualDesk?78:0)-1)/65535.0),y=(int)Math.Round(m.y*(GetSystemMetrics(virtualDesk?79:1)-1)/65535.0)};
+        POINT previous;bool known=absolutePoints.TryGetValue(h.device,out previous);absolutePoints[h.device]=point;if(!known)return;
+        dx=point.x-previous.x;dy=point.y-previous.y;
+      }
+      // Raw relative motion is independent of the OS cursor hitting an edge.
+      if(remote&&unchecked((int)((uint)GetMessageTime()-captureStarted))>=0&&(dx!=0||dy!=0))
+        Emit(new {type="move",x=lastX,y=lastY,dx=dx,dy=dy,captured=true,requestId=captureEpoch});
+    }finally{Marshal.FreeHGlobal(memory);}
+  }
   [DllImport("user32.dll",SetLastError=true)] static extern IntPtr SetWindowsHookEx(int type,Hook callback,IntPtr module,uint thread);
   [DllImport("user32.dll")] static extern bool UnhookWindowsHookEx(IntPtr hook);
   [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr hook,int n,IntPtr w,IntPtr l);
@@ -67,8 +109,18 @@ public static class AcrossInput {
     return null;
   }
   static void Emit(object value) {
-    try { lock(outputLock) { Console.Out.WriteLine(json.Serialize(value)); Console.Out.Flush(); } }
-    catch { Shutdown(); }
+    // Never wait for a pipe write inside a low-level hook: Windows can remove
+    // hooks which time out, silently allowing local clicks during sharing.
+    lock(outputLock) {
+      if(outputQueue.Count>=2048){outputQueue.Clear();remote=false;Release();outputQueue.Enqueue(new {type="panic",reason="output-backpressure"});}
+      outputQueue.Enqueue(value);
+    }
+    outputSignal.Set();
+  }
+  static void WriteOutput() {
+    var serializer=new JavaScriptSerializer {MaxJsonLength=16384,RecursionLimit=16};
+    try {while(true){outputSignal.WaitOne();while(true){object value;lock(outputLock){if(outputQueue.Count==0)break;value=outputQueue.Dequeue();}Console.Out.WriteLine(serializer.Serialize(value));Console.Out.Flush();}}}
+    catch {try{dispatcher.BeginInvoke(new Action(Shutdown));}catch{}}
   }
   static IntPtr KeyboardHook(int n,IntPtr w,IntPtr l) {
     if(n<0) return CallNextHookEx(keyboardHook,n,w,l);
@@ -87,14 +139,14 @@ public static class AcrossInput {
         object raw;var wanted=new HashSet<string>();if(binding.TryGetValue("modifiers",out raw))foreach(object item in (object[])raw)wanted.Add((string)item);
         if(Text(binding,"key")!=name||!wanted.SetEquals(mods))continue;
         shortcutKeys.Add((int)k.vk);
-        foreach(ushort vk in modifierKeys)if(physicalKeys.Contains(vk)) {quietKeys.Add(vk);if(remote){var data=new KEYHOOK {vk=vk};string key=KeyName(data);if(key!=null)Emit(new {type="key",key=key,down=false});}Key(vk,false,ExtendedKey(vk));}
+        foreach(ushort vk in modifierKeys)if(physicalKeys.Contains(vk)) {quietKeys.Add(vk);if(remote){var data=new KEYHOOK {vk=vk};string key=KeyName(data);if(key!=null)Emit(new {type="key",key=key,down=false,captured=true,requestId=captureEpoch});}Key(vk,false,ExtendedKey(vk));}
         Emit(new {type="shortcut",action=Text(binding,"action")});return new IntPtr(1);
       }
     }
     if(remote && down && k.vk==27 && ctrl && alt) {
       remote=false; Release(); Emit(new {type="panic"}); return new IntPtr(1);
     }
-    if(remote) { string name=KeyName(k); if(name!=null) Emit(new {type="key",key=name,down=down}); return new IntPtr(1); }
+    if(remote) { string name=KeyName(k); if(name!=null) Emit(new {type="key",key=name,down=down,captured=true,requestId=captureEpoch}); return new IntPtr(1); }
     return CallNextHookEx(keyboardHook,n,w,l);
   }
   static IntPtr MouseHook(int n,IntPtr w,IntPtr l) {
@@ -104,12 +156,12 @@ public static class AcrossInput {
     int msg=w.ToInt32();
     if(msg==0x200) {
       int dx=havePoint?m.pt.x-lastX:0,dy=havePoint?m.pt.y-lastY:0;
-      Emit(new {type="move",x=m.pt.x,y=m.pt.y,dx=dx,dy=dy});
+      if(!remote)Emit(new {type="move",x=m.pt.x,y=m.pt.y,dx=dx,dy=dy,captured=false,requestId=captureEpoch});
       if(!remote) { lastX=m.pt.x; lastY=m.pt.y; havePoint=true; }
     } else if(remote) {
-      if(msg==0x20A || msg==0x20E) { double delta=(short)(m.data>>16)/120.0; Emit(new {type="scroll",dx=msg==0x20E?delta:0,dy=msg==0x20A?delta:0}); }
+      if(msg==0x20A || msg==0x20E) { double delta=(short)(m.data>>16)/120.0; Emit(new {type="scroll",dx=msg==0x20E?delta:0,dy=msg==0x20A?delta:0,captured=true,requestId=captureEpoch}); }
       else { int button=msg==0x201||msg==0x202?0:msg==0x204||msg==0x205?2:msg==0x207||msg==0x208?1:msg==0x20B||msg==0x20C?(((m.data>>16)&0xffff)==1?3:4):-1;
-        if(button>=0) Emit(new {type="button",button=button,down=msg==0x201||msg==0x204||msg==0x207||msg==0x20B}); }
+        if(button>=0) Emit(new {type="button",button=button,down=msg==0x201||msg==0x204||msg==0x207||msg==0x20B,captured=true,requestId=captureEpoch}); }
     }
     return remote?new IntPtr(1):CallNextHookEx(mouseHook,n,w,l);
   }
@@ -154,10 +206,14 @@ public static class AcrossInput {
       if(op=="quit") { Shutdown(); return; }
       if(op=="release") { remote=false; Release(); return; }
       if(op=="remote") {
-        remote=Boolean(d,"enabled"); heartbeat=Stopwatch.GetTimestamp();
+        bool enabled=Boolean(d,"enabled");remote=false;
+        // Drain older raw packets before beginning the new capture generation.
+        MSG pending;while(PeekMessage(out pending,dispatcher.Handle,0x00FF,0x00FF,1))DispatchMessage(ref pending);
+        captureEpoch=Number(d,"requestId",0,Int32.MaxValue);captureStarted=GetTickCount();heartbeat=Stopwatch.GetTimestamp();
         foreach(ushort vk in modifierKeys)Key(vk,false,ExtendedKey(vk));
-        if(remote) { lastX=GetSystemMetrics(76)+GetSystemMetrics(78)/2;lastY=GetSystemMetrics(77)+GetSystemMetrics(79)/2;Move(lastX,lastY);havePoint=true; }
-        else { POINT p;if(GetCursorPos(out p)) {lastX=p.x;lastY=p.y;havePoint=true;} Release(); }
+        POINT p;if(GetCursorPos(out p)) {lastX=p.x;lastY=p.y;havePoint=true;}
+        remote=enabled;if(!enabled)Release();
+        Emit(new {type="control",remote=remote,requestId=captureEpoch});
         return;
       }
       if(op=="warp") { int x=Number(d,"x",-100000,100000),y=Number(d,"y",-100000,100000); Move(x,y);lastX=x;lastY=y;havePoint=true;return; }
@@ -179,13 +235,20 @@ public static class AcrossInput {
     if(mouseHook!=IntPtr.Zero) UnhookWindowsHookEx(mouseHook);
     Application.ExitThread();
   }
+  public static string ValidateLayout() {
+    if(Marshal.SizeOf(typeof(RAWMOUSE))!=24||Marshal.OffsetOf(typeof(RAWMOUSE),"x").ToInt32()!=12||Marshal.OffsetOf(typeof(RAWMOUSE),"y").ToInt32()!=16)throw new Exception("Invalid raw mouse layout");
+    if(Marshal.SizeOf(typeof(RAWHEADER))!=(IntPtr.Size==8?24:16))throw new Exception("Invalid raw header layout");
+    return "{\"type\":\"self-test\",\"ok\":true}";
+  }
   [STAThread] public static void Run() {
     SetProcessDPIAware();
-    dispatcher=new Form(); IntPtr handle=dispatcher.Handle;
+    dispatcher=new InputWindow(); IntPtr handle=dispatcher.Handle;
+    var writer=new Thread(WriteOutput);writer.IsBackground=true;writer.Start();
+    bool rawReady=RegisterRawInputDevices(new RAWDEVICE[]{new RAWDEVICE {page=1,usage=2,flags=0x100,target=handle}},1,(uint)Marshal.SizeOf(typeof(RAWDEVICE)));
     IntPtr module=GetModuleHandle(null);
     keyboardHook=SetWindowsHookEx(WH_KEYBOARD_LL,keyboardProc,module,0);
     mouseHook=SetWindowsHookEx(WH_MOUSE_LL,mouseProc,module,0);
-    bool trusted=keyboardHook!=IntPtr.Zero && mouseHook!=IntPtr.Zero;
+    bool trusted=rawReady && keyboardHook!=IntPtr.Zero && mouseHook!=IntPtr.Zero;
     Emit(new {type="ready",trusted=trusted,shortcuts=true,platform="win32",bounds=new {x=GetSystemMetrics(76),y=GetSystemMetrics(77),width=GetSystemMetrics(78),height=GetSystemMetrics(79)}});
     if(!trusted) { Shutdown(); return; }
     heartbeat=Stopwatch.GetTimestamp();
@@ -197,4 +260,4 @@ public static class AcrossInput {
 }
 '@
 Add-Type -TypeDefinition $source -ReferencedAssemblies System.Windows.Forms,System.Web.Extensions,System.Core
-[AcrossInput]::Run()
+if ($SelfTest) { [AcrossInput]::ValidateLayout() } else { [AcrossInput]::Run() }

@@ -2,7 +2,7 @@
 
 Across is an independently written desktop app for sharing input and data between your Mac and Windows computers. It uses an original interface and protocol. No CursorHop code, keys, binaries, artwork or subscription logic are included.
 
-Version 0.1.5 is a Windows background-sharing maintenance update. Minimize or close to the tray without stopping input; reopen from the tray, and use Quit Across to exit. Existing Mac 0.1.4 is compatible and remembered pairings are retained. See [UPDATE_0.1.5.md](UPDATE_0.1.5.md). Version 0.1.4 introduced remembered pairing and recorded shortcuts; see [UPDATE_0.1.4.md](UPDATE_0.1.4.md). This is not a completed replacement for every CursorHop feature. The precise status is in [FEATURES.md](FEATURES.md).
+Version 0.1.6 repairs handoff timing, rejects stale native input after switching, uses unclamped Windows raw mouse movement, and no longer centers the original Windows cursor. Update both computers and enable input once; saved pairings remain. See [UPDATE_0.1.6.md](UPDATE_0.1.6.md). Windows background-sharing improvements from [0.1.5](UPDATE_0.1.5.md) and remembered pairing/recorded shortcuts from [0.1.4](UPDATE_0.1.4.md) are retained. This is not a completed replacement for every CursorHop feature. The precise status is in [FEATURES.md](FEATURES.md).
 
 ## Install and pair
 
@@ -80,4 +80,4 @@ The helpers observe pointer motion for edge detection while input is enabled. Th
 - The Mac helper compiled for ARM64/macOS 13+, detected two physical displays with a negative origin, and failed closed while Accessibility was unavailable.
 - The Windows ZIP contains an x64 Windows executable and native helper source. Windows runtime and physical Mac↔Windows input, clipboard and file transfer require the user's Windows computer.
 
-See [FEATURES.md](FEATURES.md) for feature limits and [UPDATE_0.1.5.md](UPDATE_0.1.5.md) for background-sharing tests and update instructions.
+See [FEATURES.md](FEATURES.md) for feature limits and [UPDATE_0.1.6.md](UPDATE_0.1.6.md) for handoff tests and update instructions.

@@ -35,6 +35,11 @@ func modifier(_ code: CGKeyCode) -> CGEventFlags? {
     switch code { case 54,55: return .maskCommand; case 56,60: return .maskShift; case 58,61: return .maskAlternate; case 59,62: return .maskControl; case 57: return .maskAlphaShift; default: return nil }
 }
 var remote = false
+var captureEpoch = 0
+func emitInput(_ event: [String:Any]) {
+    var frame = event; frame["captured"] = remote; frame["requestId"] = captureEpoch
+    emit(frame)
+}
 var cursorHidden = false
 func restoreCursor() {
     if cursorHidden { CGDisplayShowCursor(CGMainDisplayID()); cursorHidden = false }
@@ -93,7 +98,7 @@ func handle(_ object: [String: Any]) {
     case "heartbeat": lastHeartbeat = Date()
     case "remote":
         guard let enabled = bool(object, "enabled") else { return }
-        releaseAll(); remote = enabled; lastHeartbeat = Date()
+        releaseAll(); captureEpoch = object["requestId"] as? Int ?? 0; remote = enabled; lastHeartbeat = Date()
         if enabled && !simulateInputState {
             if CGDisplayHideCursor(CGMainDisplayID()) == .success { cursorHidden = true }
         }
@@ -146,7 +151,7 @@ let callback: CGEventTapCallBack = { _, type, event, _ in
         let modifiers = [("Control",CGEventFlags.maskControl),("Alt",CGEventFlags.maskAlternate),("Shift",CGEventFlags.maskShift),("Meta",CGEventFlags.maskCommand)].filter { physicalFlags.contains($0.1) }.map { $0.0 }
         if let key = names[code], let binding = shortcutBindings.first(where: { ($0["key"] as? String) == key && Set($0["modifiers"] as? [String] ?? []) == Set(modifiers) }), let action = binding["action"] as? String {
             shortcutKeys.insert(code); quietModifiers.formUnion(physicalFlags.intersection([.maskControl,.maskAlternate,.maskShift,.maskCommand]))
-            if remote { for held in capturedModifiers { if let name = names[held] { emit(["type":"key","key":name,"down":false]) } }; capturedModifiers.removeAll() }
+            if remote { for held in capturedModifiers { if let name = names[held] { emitInput(["type":"key","key":name,"down":false]) } }; capturedModifiers.removeAll() }
             for held in standardModifiers { let e = CGEvent(keyboardEventSource:source,virtualKey:held,keyDown:false); e?.flags = []; post(e) }
             emit(["type":"shortcut","action":action]); return nil
         }
@@ -161,23 +166,23 @@ let callback: CGEventTapCallBack = { _, type, event, _ in
     }
     let movement = type == .mouseMoved || type == .leftMouseDragged || type == .rightMouseDragged || type == .otherMouseDragged
     if movement {
-        emit(["type":"move","x":event.location.x,"y":event.location.y,"dx":event.getDoubleValueField(.mouseEventDeltaX),"dy":event.getDoubleValueField(.mouseEventDeltaY)])
+        emitInput(["type":"move","x":event.location.x,"y":event.location.y,"dx":event.getDoubleValueField(.mouseEventDeltaX),"dy":event.getDoubleValueField(.mouseEventDeltaY)])
     } else if remote {
         switch type {
         case .keyDown,.keyUp:
-            if let key = names[code] { emit(["type":"key","key":key,"down":type == .keyDown]) }
+            if let key = names[code] { emitInput(["type":"key","key":key,"down":type == .keyDown]) }
         case .flagsChanged:
             if let key = names[code], let flag = modifier(code) {
                 let down = event.flags.contains(flag) && !capturedModifiers.contains(code)
                 if down { capturedModifiers.insert(code) } else { capturedModifiers.remove(code) }
-                emit(["type":"key","key":key,"down":down])
+                emitInput(["type":"key","key":key,"down":down])
             }
         case .leftMouseDown,.leftMouseUp,.rightMouseDown,.rightMouseUp,.otherMouseDown,.otherMouseUp:
             let nativeButton = Int(event.getIntegerValueField(.mouseEventButtonNumber))
             let button = (type == .leftMouseDown || type == .leftMouseUp) ? 0 : ((type == .rightMouseDown || type == .rightMouseUp) ? 2 : (nativeButton == 2 ? 1 : nativeButton))
-            emit(["type":"button","button":button,"down":type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown])
+            emitInput(["type":"button","button":button,"down":type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown])
         case .scrollWheel:
-            emit(["type":"scroll","dx":event.getDoubleValueField(.scrollWheelEventDeltaAxis2),"dy":event.getDoubleValueField(.scrollWheelEventDeltaAxis1)])
+            emitInput(["type":"scroll","dx":event.getDoubleValueField(.scrollWheelEventDeltaAxis2),"dy":event.getDoubleValueField(.scrollWheelEventDeltaAxis1)])
         default: break
         }
     }
@@ -211,7 +216,15 @@ if CommandLine.arguments.contains("--test-command-stream") {
 }
 if simulateInputState {
     let ok = readCommands { object in
-        if object["op"] as? String == "test-key", let name = object["key"] as? String, let code = codes[name] {
+        if object["op"] as? String == "test-mouse" {
+            let kind = object["kind"] as? String ?? "move"
+            let type: CGEventType = kind == "down" ? .leftMouseDown : (kind == "up" ? .leftMouseUp : .mouseMoved)
+            if let event = CGEvent(mouseEventSource:source,mouseType:type,mouseCursorPosition:CGPoint(x:object["x"] as? Double ?? 0,y:100),mouseButton:.left) {
+                event.setDoubleValueField(.mouseEventDeltaX,value:object["dx"] as? Double ?? 0)
+                let result = callback(OpaquePointer(bitPattern:1)!,type,event,nil)
+                emit(["type":"test-mouse-disposition","kind":kind,"suppressed":result == nil])
+            }
+        } else if object["op"] as? String == "test-key", let name = object["key"] as? String, let code = codes[name] {
             let down = object["down"] as? Bool ?? true
             let type: CGEventType = modifier(code) != nil ? .flagsChanged : (down ? .keyDown : .keyUp)
             if let event = CGEvent(keyboardEventSource:source,virtualKey:code,keyDown:down) {
