@@ -10,7 +10,7 @@ An original Mac and Windows desktop app for sharing a keyboard, mouse, opt-in cl
 
 ## Downloads
 
-- [Download page](https://hrishikeshsriramoju.github.io/across/downloads/)
+- [Download page](https://across-o98e.onrender.com/)
 - [Mac — Apple Silicon DMG](https://github.com/HrishikeshSriramoju/across/releases/download/v0.1.6/Across-0.1.6-mac-arm64.dmg)
 - [Windows — x64 ZIP](https://github.com/HrishikeshSriramoju/across/releases/download/v0.1.6/Across-0.1.6-win-x64.zip)
 - [Windows update notes and checksum](https://github.com/HrishikeshSriramoju/across/releases/tag/v0.1.6)
