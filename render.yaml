@@ -1,0 +1,7 @@
+services:
+  - type: web
+    runtime: static
+    name: across
+    buildCommand: node scripts/publish-website.cjs
+    staticPublishPath: ./docs
+    pullRequestPreviewsEnabled: true
