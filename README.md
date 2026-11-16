@@ -6,7 +6,7 @@ An original Mac and Windows desktop app for sharing a keyboard, mouse, opt-in cl
 
 ## Website
 
-**[across on GitHub Pages](https://hrishikeshsriramoju.github.io/across/)** — free public hosting, with Mac and Windows downloads.
+**[across on GitHub Pages](https://across-o98e.onrender.com/)** — free public hosting, with Mac and Windows downloads.
 
 ## Downloads
 
